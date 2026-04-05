@@ -271,15 +271,15 @@ function results = run_ablation_para(varargin)
 
     fprintf('\n========== 消融实验完成 (地图: %s) ==========\n', map_name);
     fprintf('\n========== 结果汇总表格 ==========\n');
-    fprintf('%-35s | %-10s | %-10s | %-10s | %-10s | %-8s\n', ...
-        '变体', '适应度', '能耗(J)', '高优%', '全局%', 'HV');
-    fprintf('%s\n', repmat('-', 1, 95));
+    fprintf('%-35s | %-10s | %-10s | %-10s | %-10s\n', ...
+        '变体', '适应度', '能耗(J)', '高优%', '全局%');
+    fprintf('%s\n', repmat('-', 1, 85));
     for v_idx = 1:size(variants, 1)
         variant_name = variants{v_idx, 1};
         r = results.(variant_name);
-        fprintf('%-35s | %-10.2f | %-10.2f | %-10.2f | %-10.2f | %-8.4f\n', ...
+        fprintf('%-35s | %-10.2f | %-10.2f | %-10.2f | %-10.2f\n', ...
             variant_name, r.mean_fitness, r.mean_energy, ...
-            r.mean_cov_high, r.mean_cov_total, r.mean_hv);
+            r.mean_cov_high, r.mean_cov_total);
     end
     fprintf('================================\n');
 

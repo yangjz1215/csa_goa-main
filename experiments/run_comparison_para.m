@@ -12,7 +12,7 @@ function results = run_comparison_para(varargin)
     addParameter(p, 'n_runs', 30);
     addParameter(p, 'map_name', 'Map1_Medium');
     addParameter(p, 'verbose', false);
-    addParameter(p, 'n_workers', 3);
+    addParameter(p, 'n_workers', 4);
     parse(p, varargin{:});
     n_runs = p.Results.n_runs;
     map_name = p.Results.map_name;

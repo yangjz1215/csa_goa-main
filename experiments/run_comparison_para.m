@@ -1,15 +1,17 @@
-function results = run_ablation_para(varargin)
-    fprintf('========== 消融实验开始 (并行版本) ==========\n');
+function results = run_comparison_para(varargin)
+    fprintf('========== 对比实验开始 (并行版本) ==========\n');
 
     script_dir = fileparts(mfilename('fullpath'));
     project_dir = fileparts(script_dir);
     addpath(genpath(project_dir));
     addpath(genpath(fullfile(project_dir, 'ablation')));
+    addpath(genpath(fullfile(project_dir, 'comparison_algorithms')));
     addpath(genpath(fullfile(project_dir, 'performance_metrics')));
 
     p = inputParser;
     addParameter(p, 'n_runs', 30);
     addParameter(p, 'map_name', 'Map1_Medium');
+    addParameter(p, 'verbose', false);
     addParameter(p, 'n_workers', 3);
     parse(p, varargin{:});
     n_runs = p.Results.n_runs;
@@ -93,7 +95,7 @@ function results = run_ablation_para(varargin)
     params.f_BBU = 4e9;
 
     params.FES_max = 300;
-    params.K = 15;
+    params.K = 40;
 
     params.G_weights = [0.4, 0.3, 0.3];
     params.subpop_params = struct();
@@ -105,25 +107,31 @@ function results = run_ablation_para(varargin)
     params.subpop_params.q = [0.6, 0.5, 0.4];
     params.subpop_params.beta = [0.8, 0.7, 0.6];
 
-    variants = {
-        'proposed', 'Model 0 (Proposed) - 完全体 (Multi-Subpop + E-Levy + Adaptive + MO-Stop)';
-        'no_subpop', 'Model 1 (w/o Multi-Subpop) - 去掉三子种群';
-        'no_adaptive', 'Model 2 (w/o Adaptive) - 去掉自适应参数';
-        'no_levy', 'Model 3 (w/o E-Levy) - 去掉能量感知Levy跃迁';
-        'no_stop', 'Model 4 (w/o MO-SmartStop) - 去掉多目标智能停止'
+    algorithms = {
+        'cSA_GOA', 'cSA-GOA (Proposed)';
+        'PSO', 'PSO (Particle Swarm Optimization)';
+        'GA', 'GA (Genetic Algorithm)';
+        'GOA', 'GOA (Grasshopper Optimization)';
+        'cSA', 'cSA (Compact Sine Algorithm)';
+        'GWO', 'GWO (Grey Wolf Optimizer)'
     };
 
     reference_point = [1.0, 100000];
+
+    if isempty(gcp('nocreate'))
+        fprintf('启动并行池 (%d workers)...\n', n_workers);
+        parpool('local', n_workers);
+    end
 
     results = struct();
     results.map_name = map_name;
     results.N_User = N_User;
     results.N_UAV = N_UAV;
 
-    for v_idx = 1:size(variants, 1)
-        variant_name = variants{v_idx, 1};
-        variant_desc = variants{v_idx, 2};
-        fprintf('\n--- 运行变体: %s ---\n', variant_desc);
+    for alg_idx = 1:size(algorithms, 1)
+        alg_name = algorithms{alg_idx, 1};
+        alg_desc = algorithms{alg_idx, 2};
+        fprintf('\n--- 运行算法: %s (并行) ---\n', alg_desc);
 
         best_fits = zeros(n_runs, 1);
         energies = zeros(n_runs, 1);
@@ -135,17 +143,10 @@ function results = run_ablation_para(varargin)
         igd_values = zeros(n_runs, 1);
         spread_values = zeros(n_runs, 1);
         pareto_sizes = zeros(n_runs, 1);
-        temp_pareto_fronts = cell(n_runs, 1);
-
-        if isempty(gcp('nocreate'))
-            fprintf('启动并行池 (%d workers)...\n', n_workers);
-            parpool('local', n_workers);
-        end
+        pareto_fronts_cell = cell(n_runs, 1);
 
         parfor run = 1:n_runs
-            fprintf('  Worker 正在处理 Run %d/%d...\n', run, n_runs);
-
-            stream = RandStream('mt19937ar', 'Seed', run * 100 + v_idx * 1000);
+            stream = RandStream('mt19937ar', 'Seed', run * 200 + alg_idx * 1000);
             RandStream.setGlobalStream(stream);
 
             best_fit = 0;
@@ -153,29 +154,48 @@ function results = run_ablation_para(varargin)
             cg_curve = zeros(1, 300);
             pareto_archive = struct('Coverage', {}, 'Energy', {}, 'UAV_pos', {});
 
-            switch variant_name
-                case 'proposed'
+            switch alg_name
+                case 'cSA_GOA'
                     [best_fit, bestUAV, cg_curve, energy_consumption, pareto_archive] = ...
                         model0_proposed(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
-                case 'no_subpop'
+                case 'PSO'
                     [best_fit, bestUAV, cg_curve, energy_consumption, pareto_archive] = ...
-                        model2_no_subpop(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
-                case 'no_adaptive'
+                        PSO_UAV(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
+                case 'GA'
                     [best_fit, bestUAV, cg_curve, energy_consumption, pareto_archive] = ...
-                        model6_no_adaptive(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
-                case 'no_levy'
+                        GA_UAV(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
+                case 'GOA'
                     [best_fit, bestUAV, cg_curve, energy_consumption, pareto_archive] = ...
-                        model1_no_levy(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
-                case 'no_stop'
+                        GOA_UAV(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
+                case 'cSA'
                     [best_fit, bestUAV, cg_curve, energy_consumption, pareto_archive] = ...
-                        model4_no_stop(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
+                        cSA_UAV(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
+                case 'GWO'
+                    [best_fit, bestUAV, cg_curve, energy_consumption, pareto_archive] = ...
+                        GWO_UAV(N_User, User, N_RRH, RRH, RRH_type, N_UAV, UAV_type, Ub, Lb, params, priorities);
             end
 
-            best_fits(run) = best_fit;
+            if ~isempty(pareto_archive) && length(pareto_archive) > 1
+                arch_cov = [pareto_archive.Coverage];
+                arch_energy = [pareto_archive.Energy];
 
-            center_point = repmat([500, 500], N_UAV, 1);
-            fly_dist = sqrt(sum((bestUAV - center_point).^2, 2));
-            energies(run) = sum(params.k_move * fly_dist);
+                norm_cov = (arch_cov - min(arch_cov)) / (max(arch_cov) - min(arch_cov) + 1e-6);
+                norm_eng = (arch_energy - min(arch_energy)) / (max(arch_energy) - min(arch_energy) + 1e-6);
+                distances_to_ideal = sqrt((1 - norm_cov).^2 + (0 - norm_eng).^2);
+                [~, idx_knee] = min(distances_to_ideal);
+
+                best_fits(run) = best_fit;
+                energies(run) = pareto_archive(idx_knee).Energy;
+
+                if isfield(pareto_archive(idx_knee), 'UAV_pos')
+                    bestUAV = pareto_archive(idx_knee).UAV_pos;
+                end
+            else
+                best_fits(run) = best_fit;
+                center_point = repmat([500, 500], N_UAV, 1);
+                fly_dist = sqrt(sum((bestUAV - center_point).^2, 2));
+                energies(run) = sum(params.k_move * fly_dist);
+            end
 
             cov_high(run) = calcCoverageWithRRH(bestUAV, User(priorities>=3,:), params.cover_radius, RRH, params.RRH_radius) * 100;
             cov_total(run) = calcCoverageWithRRH(bestUAV, User, params.cover_radius, RRH, params.RRH_radius) * 100;
@@ -190,7 +210,7 @@ function results = run_ablation_para(varargin)
                     pareto_front(p_idx, 2) = pareto_archive(p_idx).Energy;
                 end
                 pareto_sizes(run) = length(pareto_archive);
-                temp_pareto_fronts{run} = pareto_front;
+                pareto_fronts_cell{run} = pareto_front;
 
                 try
                     metrics = calculate_all_metrics(pareto_front, [], reference_point);
@@ -204,51 +224,46 @@ function results = run_ablation_para(varargin)
                 pareto_sizes(run) = 0;
                 hv_values(run) = 0;
                 spread_values(run) = NaN;
-                temp_pareto_fronts{run} = [];
+                pareto_fronts_cell{run} = [];
             end
-
-            fprintf('  -> Run %d 完成: Fitness=%.2f, HV=%.4f\n', run, best_fit, hv_values(run));
         end
 
-        pareto_fronts{v_idx} = temp_pareto_fronts;
+        pareto_fronts{alg_idx} = pareto_fronts_cell;
 
-        results.(variant_name) = struct();
-        results.(variant_name).description = variant_desc;
-        results.(variant_name).best_fits = best_fits;
-        results.(variant_name).energies = energies;
-        results.(variant_name).cov_high = cov_high;
-        results.(variant_name).cov_total = cov_total;
-        results.(variant_name).iter_counts = iter_counts;
-        results.(variant_name).convergence_curves = convergence_curves;
-        results.(variant_name).mean_fitness = mean(best_fits);
-        results.(variant_name).std_fitness = std(best_fits);
-        results.(variant_name).mean_energy = mean(energies);
-        results.(variant_name).mean_cov_high = mean(cov_high);
-        results.(variant_name).mean_cov_total = mean(cov_total);
-        results.(variant_name).hv_values = hv_values;
-        results.(variant_name).mean_hv = mean(hv_values);
-        results.(variant_name).std_hv = std(hv_values);
-        results.(variant_name).igd_values = igd_values;
-        results.(variant_name).mean_igd = mean(igd_values);
-        results.(variant_name).spread_values = spread_values;
-        results.(variant_name).mean_spread = mean(spread_values);
-        results.(variant_name).pareto_fronts = temp_pareto_fronts;
-        results.(variant_name).mean_pareto_size = mean(pareto_sizes);
+        results.(alg_name) = struct();
+        results.(alg_name).description = alg_desc;
+        results.(alg_name).best_fits = best_fits;
+        results.(alg_name).energies = energies;
+        results.(alg_name).cov_high = cov_high;
+        results.(alg_name).cov_total = cov_total;
+        results.(alg_name).iter_counts = iter_counts;
+        results.(alg_name).convergence_curves = convergence_curves;
+        results.(alg_name).mean_fitness = mean(best_fits);
+        results.(alg_name).std_fitness = std(best_fits);
+        results.(alg_name).mean_energy = mean(energies);
+        results.(alg_name).mean_cov_high = mean(cov_high);
+        results.(alg_name).mean_cov_total = mean(cov_total);
+        results.(alg_name).hv_values = hv_values;
+        results.(alg_name).mean_hv = mean(hv_values);
+        results.(alg_name).std_hv = std(hv_values);
+        results.(alg_name).igd_values = igd_values;
+        results.(alg_name).mean_igd = mean(igd_values);
+        results.(alg_name).spread_values = spread_values;
+        results.(alg_name).mean_spread = mean(spread_values);
+        results.(alg_name).mean_pareto_size = mean(pareto_sizes);
 
-        fprintf('  >> %s 平均结果:\n', variant_desc);
-        fprintf('     平均适应度: %.2f +/- %.2f\n', mean(best_fits), std(best_fits));
-        fprintf('     平均能耗: %.2f J\n', mean(energies));
-        fprintf('     平均高优先级覆盖率: %.2f%%\n', mean(cov_high));
-        fprintf('     平均全局覆盖率: %.2f%%\n', mean(cov_total));
-        fprintf('     平均HV: %.4f +/- %.4f\n', mean(hv_values), std(hv_values));
-        fprintf('     平均Spread: %.4f\n', mean(spread_values));
+        fprintf('  >> %s 平均结果:\n', alg_desc);
+        fprintf('     Mean Fitness: %.2f +/- %.2f\n', mean(best_fits), std(best_fits));
+        fprintf('     Mean Energy: %.2f J\n', mean(energies));
+        fprintf('     Mean High-Priority Coverage: %.2f%%\n', mean(cov_high));
+        fprintf('     Mean HV: %.4f +/- %.4f\n', mean(hv_values), std(hv_values));
     end
 
     fprintf('\n========== 计算IGD (使用合并Pareto前沿作为参考) ==========\n');
     all_pareto_points = [];
-    for v_idx = 1:size(variants, 1)
+    for alg_idx = 1:size(algorithms, 1)
         for run = 1:n_runs
-            pf = pareto_fronts{v_idx}{run};
+            pf = pareto_fronts{alg_idx}{run};
             if ~isempty(pf)
                 all_pareto_points = [all_pareto_points; pf];
             end
@@ -259,77 +274,58 @@ function results = run_ablation_para(varargin)
         true_front = extractNonDominated(all_pareto_points);
         fprintf('  合并Pareto解数量: %d, 非支配解数量: %d\n', size(all_pareto_points, 1), size(true_front, 1));
 
-        for v_idx = 1:size(variants, 1)
-            variant_name = variants{v_idx, 1};
+        for alg_idx = 1:size(algorithms, 1)
+            alg_name = algorithms{alg_idx, 1};
             igd_values = zeros(n_runs, 1);
             for run = 1:n_runs
-                pf = pareto_fronts{v_idx}{run};
+                pf = pareto_fronts{alg_idx}{run};
                 if ~isempty(pf)
                     igd_values(run) = igd(pf, true_front);
                 else
                     igd_values(run) = NaN;
                 end
             end
-            results.(variant_name).igd_values = igd_values;
-            results.(variant_name).mean_igd = mean(igd_values);
+            results.(alg_name).igd_values = igd_values;
+            results.(alg_name).mean_igd = mean(igd_values);
         end
     end
 
-    fprintf('\n========== 消融实验完成 (地图: %s) ==========\n', map_name);
+    fprintf('\n========== 对比实验完成 (地图: %s) ==========\n', map_name);
     fprintf('\n========== 结果汇总表格 ==========\n');
-    fprintf('%-35s | %-10s | %-10s | %-10s | %-10s\n', ...
-        '变体', '适应度', '能耗(J)', '高优%', '全局%');
-    fprintf('%s\n', repmat('-', 1, 85));
-    for v_idx = 1:size(variants, 1)
-        variant_name = variants{v_idx, 1};
-        r = results.(variant_name);
-        fprintf('%-35s | %-10.2f | %-10.2f | %-10.2f | %-10.2f\n', ...
-            variant_name, r.mean_fitness, r.mean_energy, ...
-            r.mean_cov_high, r.mean_cov_total);
+    fprintf('%-18s | %-8s | %-8s | %-8s | %-8s | %-8s | %-6s\n', ...
+        'Algorithm', 'Fitness', 'Energy(J)', 'HighPri%', 'Total%', 'HV', 'Pareto');
+    fprintf('%s\n', repmat('-', 1, 100));
+    for alg_idx = 1:size(algorithms, 1)
+        alg_name = algorithms{alg_idx, 1};
+        r = results.(alg_name);
+        fprintf('%-18s | %-8.2f | %-8.2f | %-8.2f | %-8.2f | %-8.4f | %-6.1f\n', ...
+            alg_name, r.mean_fitness, r.mean_energy, ...
+            r.mean_cov_high, r.mean_cov_total, r.mean_hv, r.mean_pareto_size);
     end
     fprintf('================================\n');
 
-    fprintf('\n========== 多目标优化指标 ==========\n');
-    fprintf('%-35s | %-12s | %-12s | %-12s\n', ...
-        '变体', 'HV(mean±std)', 'IGD(mean)', 'Spread(mean)');
-    fprintf('%s\n', repmat('-', 1, 75));
-    for v_idx = 1:size(variants, 1)
-        variant_name = variants{v_idx, 1};
-        r = results.(variant_name);
-        fprintf('%-35s | %-12.4f | %-12.4f | %-12.4f\n', ...
-            variant_name, r.mean_hv, r.mean_igd, r.mean_spread);
-    end
-    fprintf('================================\n');
-
-    results_file = fullfile(project_dir, 'experiments', ['ablation_results_para_', map_name, '_', datestr(now, 'yyyymmdd_HHMMSS'), '.mat']);
+    results_file = fullfile(project_dir, 'experiments', ...
+        ['comparison_results_para_', map_name, '_', datestr(now, 'yyyymmdd_HHMMSS'), '.mat']);
     save(results_file, 'results');
     fprintf('结果已保存: %s\n', results_file);
 end
 
 function cov_ratio = calcCoverageWithRRH(UAV_pos, User_pos, UAV_radius, RRH, RRH_radius)
     covered = 0;
-    for i = 1:size(User_pos,1)
-        dists_uav = sqrt(sum((UAV_pos - User_pos(i,:)).^2, 2));
-        covered_by_uav = any(dists_uav <= UAV_radius);
-
-        if size(RRH,1) > 0
-            dists_rrh = sqrt(sum((RRH - User_pos(i,:)).^2, 2));
-            covered_by_rrh = any(dists_rrh <= RRH_radius);
-        else
-            covered_by_rrh = false;
-        end
-
-        if covered_by_uav || covered_by_rrh
+    for i = 1:size(User_pos, 1)
+        user = User_pos(i, :);
+        dist_UAV = min(sqrt(sum((UAV_pos - repmat(user, size(UAV_pos, 1), 1)).^2, 2)));
+        dist_RRH = min(sqrt(sum((RRH - repmat(user, size(RRH, 1), 1)).^2, 2)));
+        if dist_UAV <= UAV_radius || dist_RRH <= RRH_radius
             covered = covered + 1;
         end
     end
-    cov_ratio = covered / size(User_pos,1);
+    cov_ratio = covered / size(User_pos, 1);
 end
 
-function non_dominated = extractNonDominated(points)
+function pf = extractNonDominated(points)
     n = size(points, 1);
     is_dominated = false(n, 1);
-
     for i = 1:n
         for j = 1:n
             if i ~= j
@@ -342,6 +338,5 @@ function non_dominated = extractNonDominated(points)
             end
         end
     end
-
-    non_dominated = points(~is_dominated, :);
+    pf = points(~is_dominated, :);
 end

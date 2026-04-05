@@ -1,8 +1,8 @@
 function plot_convergence_hv(data_file, output_dir)
-if nargin < 1
+if nargin < 1 || isempty(data_file)
     data_file = fullfile('..', 'experiments', 'ablation_results_para_Map1_Medium_20260405_184023.mat');
 end
-if nargin < 2
+if nargin < 2 || isempty(output_dir)
     output_dir = fullfile('..', 'figures');
 end
 
@@ -12,96 +12,84 @@ end
 
 load(data_file);
 
-fig = figure('Units', 'normalized', 'Position', [0.1, 0.1, 0.6, 0.45]);
+variants = {'proposed', 'no_subpop', 'no_adaptive', 'no_levy', 'no_stop'};
+labels = {'Proposed', 'w/o Subpop', 'w/o Adaptive', 'w/o E-Levy', 'w/o MO-Stop'};
+
+colors = [
+    0.8500, 0.3250, 0.0980;
+    0.0000, 0.4470, 0.7410;
+    0.9290, 0.6940, 0.1250;
+    0.4940, 0.1840, 0.5560;
+    0.4660, 0.6740, 0.1880
+];
+
+fig = figure('Position', [100, 100, 800, 550]);
 set(gcf, 'Color', 'w');
 
-variants = {'proposed', 'no_adaptive', 'no_levy'};
-variant_labels = {'Proposed', 'w/o Adaptive', 'w/o E-Levy'};
-variant_colors = {[1, 0, 0], [0.0, 0.45, 0.74], [0.47, 0.67, 0.19]};
-variant_lines = {'-', '--', '-.'};
-
-max_iter = 300;
-x = 1:max_iter;
-
-mean_fitness = zeros(length(variants), max_iter);
-mean_hv = zeros(length(variants), max_iter);
-
+subplot(1, 2, 1);
+hold on;
 for v = 1:length(variants)
     variant = variants{v};
-    if isfield(results, variant)
+    if isfield(results, variant) && isfield(results.(variant), 'convergence_curves')
         curves = results.(variant).convergence_curves;
-        hv_vals = results.(variant).hv_values;
-
-        valid_curves = [];
-        for i = 1:length(curves)
-            if ~isempty(curves{i}) && length(curves{i}) >= 10
-                valid_curves = [valid_curves, i];
-            end
-        end
-
-        if ~isempty(valid_curves)
-            max_len = 0;
-            for i = valid_curves
-                max_len = max(max_len, length(curves{i}));
-            end
-            max_len = min(max_len, max_iter);
-
-            fitness_matrix = zeros(length(valid_curves), max_iter);
-            for idx = 1:length(valid_curves)
-                c = curves{valid_curves(idx)};
-                len = min(length(c), max_iter);
-                fitness_matrix(idx, 1:len) = c(1:len);
-                if len < max_iter
-                    fitness_matrix(idx, len+1:end) = c(len);
+        if iscell(curves) && ~isempty(curves)
+            max_len = max(cellfun(@length, curves));
+            avg_curve = zeros(1, max_len);
+            n_runs = 0;
+            for run = 1:min(length(curves), 10)
+                if ~isempty(curves{run})
+                    c = curves{run};
+                    avg_curve(1:length(c)) = avg_curve(1:length(c)) + c;
+                    n_runs = n_runs + 1;
                 end
             end
-
-            mean_fitness(v, :) = mean(fitness_matrix, 1);
+            if n_runs > 0
+                avg_curve = avg_curve / n_runs;
+                if v <= 5
+                    lw = 2.0;
+                else
+                    lw = 2.5;
+                end
+                plot(1:length(avg_curve), avg_curve, '-', 'Color', colors{v, :}, 'LineWidth', lw, 'DisplayName', labels{v});
+            end
         end
-
-        mean_hv(v, :) = linspace(0, mean(hv_vals), max_iter);
     end
 end
+xlabel('Generations', 'FontWeight', 'bold');
+ylabel('Best Fitness', 'FontWeight', 'bold');
+title('Convergence Curves', 'FontWeight', 'bold');
+legend('Location', 'southeast', 'FontName', 'Times New Roman', 'FontSize', 9);
+set(gca, 'FontName', 'Times New Roman', 'FontSize', 11, 'LineWidth', 1.2);
+grid on;
+ax = gca;
+ax.GridLineStyle = ':';
+ax.GridAlpha = 0.5;
+box on;
 
-[ax, h1, h2] = plotyy(x, mean_fitness(1,:), x, mean_hv(1,:), 'plot');
-
-set(h1, 'Color', variant_colors{1}, 'LineWidth', 2.5, 'LineStyle', variant_lines{1});
-set(h2, 'Color', variant_colors{1}, 'LineWidth', 2.5, 'LineStyle', variant_lines{1});
-
-hold(ax(1), 'on');
-hold(ax(2), 'on');
-
-for v = 2:length(variants)
-    plot(ax(1), x, mean_fitness(v,:), 'Color', variant_colors{v}, 'LineWidth', 2, 'LineStyle', variant_lines{v});
-    plot(ax(2), x, mean_hv(v,:), 'Color', variant_colors{v}, 'LineWidth', 2, 'LineStyle', variant_lines{v});
-end
-
-set(ax(1), 'YColor', [0.3, 0.3, 0.3], 'FontSize', 11);
-set(ax(2), 'YColor', [0.3, 0.3, 0.3], 'FontSize', 11);
-set(ax(1), 'XColor', [0.3, 0.3, 0.3], 'FontSize', 11);
-
-ylabel(ax(1), 'Fitness', 'FontSize', 12, 'FontWeight', 'bold');
-ylabel(ax(2), 'Hypervolume', 'FontSize', 12, 'FontWeight', 'bold');
-xlabel(ax(1), 'Iteration', 'FontSize', 12, 'FontWeight', 'bold');
-
-title('Convergence Analysis: Proposed vs Ablation Variants', 'FontSize', 14, 'FontWeight', 'bold');
-
-legend_handles = [];
-legend_labels = [];
+subplot(1, 2, 2);
+hold on;
+hv_means = zeros(1, length(variants));
+hv_stds = zeros(1, length(variants));
 for v = 1:length(variants)
-    legend_handles = [legend_handles, plot(nan, nan, 'Color', variant_colors{v}, 'LineWidth', 2, 'LineStyle', variant_lines{v})];
-    legend_labels = [legend_labels, variant_labels{v}];
+    variant = variants{v};
+    if isfield(results, variant) && isfield(results.(variant), 'hv_values')
+        vals = results.(variant).hv_values;
+        hv_means(v) = mean(vals);
+        hv_stds(v) = std(vals);
+    end
 end
-legend(legend_handles, legend_labels, 'Location', 'best', 'FontSize', 10);
-
-grid(ax(1), 'on');
-grid(ax(2), 'on');
-
-break_point = 120;
-annotation('arrow', [0.3, 0.45], [0.55, 0.7], 'Color', [1, 0, 0], 'LineWidth', 2);
-annotation('textbox', [0.45, 0.72, 0.25, 0.08], 'String', 'Proposed escapes local optimum', ...
-    'Color', [1, 0, 0], 'FontSize', 10, 'FontWeight', 'bold', ...
-    'EdgeColor', [1, 0, 0], 'FaceAlpha', 0.1, 'BackgroundColor', [1, 1, 1]);
+errorbar(1:5, hv_means, hv_stds, '-o', 'Color', [0.0000, 0.4470, 0.7410], 'LineWidth', 2.0, 'MarkerSize', 8, 'MarkerFaceColor', [0.0000, 0.4470, 0.7410], 'Capsize', 6);
+xlabel('Variant', 'FontWeight', 'bold');
+ylabel('Hypervolume (HV)', 'FontWeight', 'bold');
+title('HV Comparison (Mean ± Std)', 'FontWeight', 'bold');
+xticks(1:5);
+xticklabels(labels);
+set(gca, 'FontName', 'Times New Roman', 'FontSize', 11, 'LineWidth', 1.2);
+grid on;
+ax = gca;
+ax.GridLineStyle = ':';
+ax.GridAlpha = 0.5;
+box on;
 
 saveas(fig, fullfile(output_dir, 'convergence_hv.fig'));
 saveas(fig, fullfile(output_dir, 'convergence_hv.png'));

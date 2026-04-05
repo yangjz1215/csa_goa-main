@@ -1,8 +1,8 @@
 function table_str = plot_statistical_tests(data_file, output_dir)
-if nargin < 1
+if nargin < 1 || isempty(data_file)
     data_file = fullfile('..', 'experiments', 'ablation_results_para_Map1_Medium_20260405_184023.mat');
 end
-if nargin < 2
+if nargin < 2 || isempty(output_dir)
     output_dir = fullfile('..', 'figures');
 end
 
@@ -27,6 +27,7 @@ n_variants = length(variants);
 p_values = zeros(n_variants, 1);
 h_stats = zeros(n_variants, 1);
 mean_improvement = zeros(n_variants, 1);
+effect_sizes = zeros(n_variants, 1);
 
 for v = 1:n_variants
     variant = variants{v};
@@ -34,83 +35,94 @@ for v = 1:n_variants
         p_values(v) = 1.0;
         h_stats(v) = 0;
         mean_improvement(v) = 0;
+        effect_sizes(v) = 0;
     elseif isfield(results, variant)
         variant_hv = results.(variant).hv_values;
-        [p_values(v), h_stats(v)] = ranksum(proposed_hv, variant_hv);
+        [p_values(v), h_stats(v)] = signrank(proposed_hv, variant_hv);
         mean_improvement(v) = (mean(proposed_hv) - mean(variant_hv)) / mean(variant_hv) * 100;
+        diffs = proposed_hv - variant_hv;
+        effect_sizes(v) = mean(diffs) / std(diffs);
     else
         p_values(v) = NaN;
         h_stats(v) = NaN;
         mean_improvement(v) = NaN;
+        effect_sizes(v) = NaN;
     end
 end
 
-fig = figure('Units', 'normalized', 'Position', [0.1, 0.1, 0.6, 0.4]);
+fig = figure('Units', 'normalized', 'Position', [0.1, 0.1, 0.75, 0.4]);
 set(gcf, 'Color', 'w');
 
-ax = axes('Parent', fig);
-axis off;
-
-col_labels = {'Variant', 'Mean HV', 'Std HV', 'Improvement (%)', 'p-value', 'Significant?'};
-table_data = cell(n_variants + 1, length(col_labels));
-table_data{1, 1} = 'Proposed';
-table_data{1, 2} = sprintf('%.4f', mean(proposed_hv));
-table_data{1, 3} = sprintf('%.4f', std(proposed_hv));
-table_data{1, 4} = '-';
-table_data{1, 5} = '-';
-table_data{1, 6} = 'N/A';
+col_labels = {'Variant', 'Mean HV', 'Std HV', 'Improvement (%)', 'Effect Size', 'p-value', 'Significant?'};
+table_data = {};
+row_names = {};
 
 for v = 2:n_variants
     variant = variants{v};
-    table_data{v, 1} = variant_labels{v};
+    row_names = [row_names, variant_labels{v}];
     if isfield(results, variant)
-        table_data{v, 2} = sprintf('%.4f', mean(results.(variant).hv_values));
-        table_data{v, 3} = sprintf('%.4f', std(results.(variant).hv_values));
+        mean_val = mean(results.(variant).hv_values);
+        std_val = std(results.(variant).hv_values);
+        imp_val = mean_improvement(v);
+        es_val = effect_sizes(v);
+        p_val = p_values(v);
+        h_val = h_stats(v);
     else
-        table_data{v, 2} = 'N/A';
-        table_data{v, 3} = 'N/A';
+        mean_val = NaN; std_val = NaN; imp_val = NaN; es_val = NaN; p_val = NaN; h_val = NaN;
     end
-    table_data{v, 4} = sprintf('%.2f', mean_improvement(v));
-    table_data{v, 5} = sprintf('%.4f', p_values(v));
-    if h_stats(v) == 1
-        table_data{v, 6} = 'Yes (*, p<0.05)';
+
+    if h_val == 1
+        sig_str = 'Yes (*, p<0.05)';
+    elseif ~isnan(p_val) && p_val < 0.10
+        sig_str = 'Marginal (+, p<0.10)';
     else
-        table_data{v, 6} = 'No';
+        sig_str = 'No';
     end
+
+    if isnan(mean_val)
+        row = {variant_labels{v}, 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A'};
+    else
+        row = {variant_labels{v}, sprintf('%.4f', mean_val), sprintf('%.4f', std_val), ...
+            sprintf('%.2f', imp_val), sprintf('%.3f', es_val), sprintf('%.4f', p_val), sig_str};
+    end
+    table_data = [table_data; row];
 end
 
-column_format = {'left', 'center', 'center', 'center', 'center', 'left'};
-column_width = {0.25, 0.12, 0.12, 0.15, 0.12, 0.2};
-
-t = uitable('Parent', ax, ...
+uitable('Data', table_data, ...
     'ColumnName', col_labels, ...
-    'Data', table_data(2:end,:), ...
-    'ColumnFormat', column_format, ...
-    'ColumnWidth', column_width, ...
-    'RowName', variant_labels(2:end), ...
-    'FontSize', 10, ...
+    'RowName', row_names, ...
+    'FontSize', 9, ...
     'FontName', 'Times New Roman', ...
     'BackgroundColor', [1, 1, 1], ...
     'ForegroundColor', [0, 0, 0], ...
-    'OuterPosition', [0.05, 0.1, 0.9, 0.85]);
+    'Units', 'normalized', ...
+    'Position', [0.02, 0.08, 0.96, 0.88]);
 
-title_str = 'Wilcoxon Signed-Rank Test: Proposed vs Ablation Variants (HV)';
-title(title_str, 'FontSize', 12, 'FontWeight', 'bold', 'FontName', 'Times New Roman');
+title({'Wilcoxon Signed-Rank Test (Paired): Proposed vs Ablation Variants'; ...
+    sprintf('Proposed HV: %.4f +/- %.4f | n=30 runs', mean(proposed_hv), std(proposed_hv))}, ...
+    'FontSize', 11, 'FontWeight', 'bold', 'FontName', 'Times New Roman');
 
-table_str = sprintf('Wilcoxon Test Results (Proposed HV: %.4f +/- %.4f)\n', mean(proposed_hv), std(proposed_hv));
-table_str = [table_str, '\n'];
-table_str = [table_str, sprintf('%-20s | %10s | %10s | %12s | %10s | %s\n', ...
-    'Variant', 'Mean HV', 'Std HV', 'Improvement', 'p-value', 'Significant?')];
-table_str = [table_str, repmat('-', 1, 85), '\n'];
+table_str = sprintf('=== Wilcoxon Signed-Rank Test Results ===\n');
+table_str = [table_str, sprintf('Baseline (Proposed): HV=%.4f +/- %.4f\n\n', mean(proposed_hv), std(proposed_hv))];
+table_str = [table_str, sprintf('%-20s | %10s | %10s | %12s | %10s | %10s | %s\n', ...
+    'Variant', 'Mean HV', 'Std HV', 'Improvement', 'Effect Sz', 'p-value', 'Sig?')];
+table_str = [table_str, repmat('-', 1, 100), '\n'];
 for v = 2:n_variants
-    table_str = [table_str, sprintf('%-20s | %10s | %10s | %11.2f%% | %10.4f | %s\n', ...
-        variant_labels{v}, ...
-        table_data{v, 2}, ...
-        table_data{v, 3}, ...
-        mean_improvement(v), ...
-        p_values(v), ...
-        table_data{v, 6})];
+    if isfield(results, variants{v})
+        if h_stats(v) == 1
+            ss = '*';
+        elseif p_values(v) < 0.10
+            ss = '+';
+        else
+            ss = '-';
+        end
+        table_str = [table_str, sprintf('%-20s | %10.4f | %10.4f | %11.2f%% | %10.3f | %10.4f | %s\n', ...
+            variant_labels{v}, mean(results.(variants{v}).hv_values), ...
+            std(results.(variants{v}).hv_values), mean_improvement(v), ...
+            effect_sizes(v), p_values(v), ss)];
+    end
 end
+table_str = [table_str, '\n* p<0.05 significant, + p<0.10 marginal\n'];
 
 fprintf('\n%s\n', table_str);
 

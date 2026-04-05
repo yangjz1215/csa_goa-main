@@ -1,4 +1,6 @@
-function plot_comparison_charts(data_file, output_dir)
+function plot_comparison_all(data_file, output_dir)
+% plot_comparison_all - 对比实验完整可视化（收敛曲线/Pareto散点/箱型图）
+% 输出至 figures/comparison 文件夹
 if nargin < 1 || isempty(data_file)
     data_file = fullfile('..', 'experiments', 'comparison_results_para_Map1_Medium_*.mat');
     files = dir(data_file);
@@ -10,7 +12,7 @@ if nargin < 1 || isempty(data_file)
     end
 end
 if nargin < 2 || isempty(output_dir)
-    output_dir = fullfile('..', 'figures');
+    output_dir = fullfile('..', 'figures', 'comparison');
 end
 
 if ~exist(output_dir, 'dir')
@@ -186,7 +188,7 @@ saveas(fig3, fullfile(output_dir, 'comparison_boxplot.png'));
 close(fig3);
 
 fprintf('Comparison charts saved to %s\n', output_dir);
-fprintf('  - comparison_convergence.fig/png (Convergence + HV bar)\n');
-fprintf('  - comparison_pareto.fig/png (Coverage vs Energy scatter)\n');
-fprintf('  - comparison_boxplot.fig/png (HV robustness boxplot)\n');
+fprintf('  - comparison_convergence.fig/png (收敛曲线 + HV误差棒)\n');
+fprintf('  - comparison_pareto.fig/png (覆盖率vs能耗散点图)\n');
+fprintf('  - comparison_boxplot.fig/png (HV分布箱型图)\n');
 end

@@ -1,55 +1,26 @@
 function run_all_visualizations(output_dir)
-if nargin < 1 || isempty(output_dir)
-    output_dir = fullfile('..', 'figures');
-end
-
-if ~exist(output_dir, 'dir')
-    mkdir(output_dir);
-end
-
+% run_all_visualizations - 运行所有可视化脚本
+% 消融实验 -> figures/ablation
+% 对比实验 -> figures/comparison
 fprintf('========== Running All Visualizations ==========\n\n');
 
-fprintf('1. Generating Pareto Comparison (Figures A & B)...\n');
+fprintf('1. Generating Ablation Charts...\n');
 try
-    plot_pareto_comparison();
+    plot_ablation_all();
     fprintf('   -> Done\n');
 catch ME
     fprintf('   -> Error: %s\n', ME.message);
 end
 
-fprintf('\n2. Generating Convergence & HV Curves (Figure C)...\n');
+fprintf('\n2. Generating Comparison Charts...\n');
 try
-    plot_convergence_hv();
+    plot_comparison_all();
     fprintf('   -> Done\n');
 catch ME
     fprintf('   -> Error: %s\n', ME.message);
 end
 
-fprintf('\n3. Generating Ablation Results (Figure D)...\n');
-try
-    plot_ablation_results();
-    fprintf('   -> Done\n');
-catch ME
-    fprintf('   -> Error: %s\n', ME.message);
-end
-
-fprintf('\n4. Generating Boxplots (Figure E)...\n');
-try
-    plot_boxplot();
-    fprintf('   -> Done\n');
-catch ME
-    fprintf('   -> Error: %s\n', ME.message);
-end
-
-fprintf('\n5. Generating Statistical Tests (Table F)...\n');
-try
-    plot_statistical_tests();
-    fprintf('   -> Done\n');
-catch ME
-    fprintf('   -> Error: %s\n', ME.message);
-end
-
-fprintf('\n6. Generating Deployment Topology (Figure G)...\n');
+fprintf('\n3. Generating Deployment Topology...\n');
 try
     plot_deployment_topology();
     fprintf('   -> Done\n');
@@ -58,5 +29,8 @@ catch ME
 end
 
 fprintf('\n========== All Visualizations Complete ==========\n');
-fprintf('Output directory: %s\n', fullfile(pwd, output_dir));
+fprintf('Output directories:\n');
+fprintf('  - figures/ablation (消融实验)\n');
+fprintf('  - figures/comparison (对比实验)\n');
+fprintf('  - figures (部署拓扑图)\n');
 end

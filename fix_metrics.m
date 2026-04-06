@@ -11,7 +11,7 @@ function fix_metrics(results_file)
             return;
         end
         [~, idx] = sort([files.datenum], 'descend');
-        results_file = fullfile(project_dir, files(idx(1).folder), files(idx(1).name);
+        results_file = fullfile(project_dir, files(idx(1)).folder, files(idx(1)).name);
         fprintf('Using latest file: %s\n', results_file);
     else
         if ~contains(results_file, '/') && ~contains(results_file, '\')

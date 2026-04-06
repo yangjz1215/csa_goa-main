@@ -257,6 +257,7 @@ function results = run_comparison_para(varargin)
         results.(alg_name).spread_values = spread_values;
         results.(alg_name).mean_spread = mean(spread_values);
         results.(alg_name).mean_pareto_size = mean(pareto_sizes);
+        results.(alg_name).pareto_fronts = pareto_fronts_cell;
 
         fprintf('  >> %s 平均结果:\n', alg_desc);
         fprintf('     Mean Fitness: %.2f +/- %.2f\n', mean(best_fits), std(best_fits));
@@ -265,65 +266,84 @@ function results = run_comparison_para(varargin)
         fprintf('     Mean HV: %.4f +/- %.4f\n', mean(hv_values), std(hv_values));
     end
 
-    fprintf('\n========== 计算IGD (使用合并Pareto前沿作为参考) ==========\n');
-    all_pareto_points = [];
-    for alg_idx = 1:size(algorithms, 1)
-        for run = 1:n_runs
-            pf = pareto_fronts{alg_idx}{run};
-            if ~isempty(pf)
-                all_pareto_points = [all_pareto_points; pf];
-            end
-        end
-    end
-
-    if ~isempty(all_pareto_points)
-        true_front = extractNonDominated(all_pareto_points);
-        fprintf('  合并Pareto解数量: %d, 非支配解数量: %d\n', size(all_pareto_points, 1), size(true_front, 1));
-
-        % 归一化true_front（用于IGD计算）
-        true_front_norm = true_front;
-        true_front_norm(:, 2) = true_front(:, 2) / 100000;
-
-        for alg_idx = 1:size(algorithms, 1)
-            alg_name = algorithms{alg_idx, 1};
-            igd_values = zeros(n_runs, 1);
-            for run = 1:n_runs
-                pf = pareto_fronts{alg_idx}{run};
+    fprintf('\n========== 开始执行全局 Min-Max 归一化与指标修正 ==========\n');
+    all_raw_points = [];
+    alg_names = fieldnames(results);
+    valid_algs = {};
+    for i = 1:length(alg_names)
+        alg = alg_names{i};
+        if ~strcmp(alg, 'map_name') && ~strcmp(alg, 'N_User') && ~strcmp(alg, 'N_UAV')
+            valid_algs{end+1} = alg;
+            for run = 1:length(results.(alg).pareto_fronts)
+                pf = results.(alg).pareto_fronts{run};
                 if ~isempty(pf)
-                    % 归一化前沿用于IGD计算
-                    pf_norm = pf;
-                    pf_norm(:, 2) = pf(:, 2) / 100000;
-                    igd_values(run) = igd(pf_norm, true_front_norm);
-                else
-                    igd_values(run) = NaN;
+                    all_raw_points = [all_raw_points; pf];
                 end
             end
-            results.(alg_name).igd_values = igd_values;
-            results.(alg_name).mean_igd = mean(igd_values);
-            results.(alg_name).std_igd = std(igd_values);
         end
     end
 
-    fprintf('\n========== 对比实验完成 (地图: %s) ==========\n', map_name);
-    fprintf('\n========== 结果汇总表格 (多目标三剑客指标) ==========\n');
-    fprintf('%-18s | %-8s | %-8s | %-8s | %-8s | %-10s | %-10s | %-8s\n', ...
-        'Algorithm', 'Fitness', 'Energy(J)', 'HighPri%', 'Total%', 'HV', 'IGD', 'Spread');
-    fprintf('%s\n', repmat('-', 1, 115));
-    for alg_idx = 1:size(algorithms, 1)
-        alg_name = algorithms{alg_idx, 1};
-        r = results.(alg_name);
-        fprintf('%-18s | %-8.2f | %-8.2f | %-8.2f | %-8.2f | %-8.4f±%-6.4f | %-8.4f±%-6.4f | %-8.4f\n', ...
-            alg_name, r.mean_fitness, r.mean_energy, ...
-            r.mean_cov_high, r.mean_cov_total, ...
-            r.mean_hv, r.std_hv, r.mean_igd, r.std_igd, r.mean_spread);
-    end
-    fprintf('================================\n');
-    fprintf('注: HV↑越大越好 | IGD↓越小越好 | Spread↑分布越均匀\n');
+    c_max = max(all_raw_points(:, 1)); c_min = min(all_raw_points(:, 1));
+    e_max = max(all_raw_points(:, 2)); e_min = min(all_raw_points(:, 2));
+    if c_max == c_min, c_max = c_min + 1e-6; end
+    if e_max == e_min, e_max = e_min + 1e-6; end
 
-    results_file = fullfile(project_dir, 'experiments', ...
-        ['comparison_results_para_', map_name, '_', datestr(now, 'yyyymmdd_HHMMSS'), '.mat']);
+    fprintf('覆盖率真实边界: [%.4f, %.4f]\n', c_min, c_max);
+    fprintf('能耗真实边界: [%.2f J, %.2f J]\n', e_min, e_max);
+
+    all_points_norm = [];
+    for i = 1:length(valid_algs)
+        alg = valid_algs{i};
+        for run = 1:length(results.(alg).pareto_fronts)
+            pf = results.(alg).pareto_fronts{run};
+            if ~isempty(pf)
+                norm_c = (c_max - pf(:, 1)) / (c_max - c_min);
+                norm_e = (pf(:, 2) - e_min) / (e_max - e_min);
+                pf_norm = [norm_c, norm_e];
+                all_points_norm = [all_points_norm; pf_norm];
+                results.(alg).pareto_fronts_norm{run} = pf_norm;
+            else
+                results.(alg).pareto_fronts_norm{run} = [];
+            end
+        end
+    end
+
+    all_points_norm = unique(all_points_norm, 'rows');
+    true_front_norm = extractNonDominated(all_points_norm);
+    ref_point_norm = [1.05, 1.05];
+
+    fprintf('\n========== 对比实验最终汇总表格 (Min-Max 归一化) ==========\n');
+    fprintf('%-12s | %-10s | %-10s | %-13s | %-13s | %-8s\n', ...
+        'Algorithm', 'Fitness', 'Energy(J)', 'HV(Norm)↑', 'IGD(Norm)↓', 'Spread↑');
+    fprintf('%s\n', repmat('-', 1, 95));
+
+    for i = 1:length(valid_algs)
+        alg = valid_algs{i};
+        r = results.(alg);
+        hvs = zeros(n_runs, 1); igds = zeros(n_runs, 1); spreads = zeros(n_runs, 1);
+        for run = 1:length(r.pareto_fronts_norm)
+            pf_norm = r.pareto_fronts_norm{run};
+            if ~isempty(pf_norm)
+                try
+                    metrics = calculate_all_metrics(pf_norm, true_front_norm, ref_point_norm);
+                    hvs(run) = metrics.hv; igds(run) = metrics.igd; spreads(run) = metrics.spread;
+                catch
+                    hvs(run) = NaN; igds(run) = NaN; spreads(run) = NaN;
+                end
+            end
+        end
+        results.(alg).mean_hv_norm = nanmean(hvs); results.(alg).std_hv_norm = nanstd(hvs);
+        results.(alg).mean_igd_norm = nanmean(igds); results.(alg).std_igd_norm = nanstd(igds);
+        results.(alg).mean_spread_norm = nanmean(spreads); results.(alg).std_spread_norm = nanstd(spreads);
+
+        fprintf('%-12s | %-10.2f | %-10.2f | %-5.4f±%-5.4f | %-5.4f±%-5.4f | %-8.4f\n', ...
+            alg, r.mean_fitness, r.mean_energy, nanmean(hvs), nanstd(hvs), nanmean(igds), nanstd(igds), nanmean(spreads));
+    end
+    fprintf('%s\n注: HV↑越大越好 | IGD↓越小越好 | Spread↑分布越均匀\n', repmat('-', 1, 95));
+
+    results_file = fullfile(project_dir, 'experiments', ['comparison_results_para_', map_name, '_', datestr(now, 'yyyymmdd_HHMMSS'), '.mat']);
     save(results_file, 'results');
-    fprintf('结果已保存: %s\n', results_file);
+    fprintf('\n完美结果已保存至: %s\n', results_file);
 end
 
 function cov_ratio = calcCoverageWithRRH(UAV_pos, User_pos, UAV_radius, RRH, RRH_radius)

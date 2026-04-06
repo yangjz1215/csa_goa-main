@@ -249,66 +249,79 @@ function results = run_ablation_para(varargin)
         fprintf('     平均Spread: %.4f\n', mean(spread_values));
     end
 
-    fprintf('\n========== 计算IGD (使用合并Pareto前沿作为参考) ==========\n');
-    all_pareto_points = [];
-    for v_idx = 1:size(variants, 1)
-        for run = 1:n_runs
-            pf = pareto_fronts{v_idx}{run};
-            if ~isempty(pf)
-                all_pareto_points = [all_pareto_points; pf];
-            end
-        end
-    end
-
-    if ~isempty(all_pareto_points)
-        true_front = extractNonDominated(all_pareto_points);
-        fprintf('  合并Pareto解数量: %d, 非支配解数量: %d\n', size(all_pareto_points, 1), size(true_front, 1));
-
-        for v_idx = 1:size(variants, 1)
-            variant_name = variants{v_idx, 1};
-            igd_values = zeros(n_runs, 1);
-            for run = 1:n_runs
-                pf = pareto_fronts{v_idx}{run};
+    fprintf('\n========== 开始执行消融实验 Min-Max 归一化 ==========\n');
+    all_raw_points = [];
+    var_keys = fieldnames(results);
+    valid_vars = {};
+    for i = 1:length(var_keys)
+        v = var_keys{i};
+        if ~strcmp(v, 'map_name') && ~strcmp(v, 'N_User') && ~strcmp(v, 'N_UAV')
+            valid_vars{end+1} = v;
+            for run = 1:length(results.(v).pareto_fronts)
+                pf = results.(v).pareto_fronts{run};
                 if ~isempty(pf)
-                    igd_values(run) = igd(pf, true_front);
-                else
-                    igd_values(run) = NaN;
+                    all_raw_points = [all_raw_points; pf];
                 end
             end
-            results.(variant_name).igd_values = igd_values;
-            results.(variant_name).mean_igd = mean(igd_values);
         end
     end
 
-    fprintf('\n========== 消融实验完成 (地图: %s) ==========\n', map_name);
-    fprintf('\n========== 结果汇总表格 ==========\n');
-    fprintf('%-35s | %-10s | %-10s | %-10s | %-10s\n', ...
-        '变体', '适应度', '能耗(J)', '高优%', '全局%');
-    fprintf('%s\n', repmat('-', 1, 85));
-    for v_idx = 1:size(variants, 1)
-        variant_name = variants{v_idx, 1};
-        r = results.(variant_name);
-        fprintf('%-35s | %-10.2f | %-10.2f | %-10.2f | %-10.2f\n', ...
-            variant_name, r.mean_fitness, r.mean_energy, ...
-            r.mean_cov_high, r.mean_cov_total);
-    end
-    fprintf('================================\n');
+    c_max = max(all_raw_points(:, 1)); c_min = min(all_raw_points(:, 1));
+    e_max = max(all_raw_points(:, 2)); e_min = min(all_raw_points(:, 2));
+    if c_max == c_min, c_max = c_min + 1e-6; end
+    if e_max == e_min, e_max = e_min + 1e-6; end
 
-    fprintf('\n========== 多目标优化指标 ==========\n');
-    fprintf('%-35s | %-12s | %-12s | %-12s\n', ...
-        '变体', 'HV(mean±std)', 'IGD(mean)', 'Spread(mean)');
-    fprintf('%s\n', repmat('-', 1, 75));
-    for v_idx = 1:size(variants, 1)
-        variant_name = variants{v_idx, 1};
-        r = results.(variant_name);
-        fprintf('%-35s | %-12.4f | %-12.4f | %-12.4f\n', ...
-            variant_name, r.mean_hv, r.mean_igd, r.mean_spread);
+    all_points_norm = [];
+    for i = 1:length(valid_vars)
+        v = valid_vars{i};
+        for run = 1:length(results.(v).pareto_fronts)
+            pf = results.(v).pareto_fronts{run};
+            if ~isempty(pf)
+                norm_c = (c_max - pf(:, 1)) / (c_max - c_min);
+                norm_e = (pf(:, 2) - e_min) / (e_max - e_min);
+                pf_norm = [norm_c, norm_e];
+                all_points_norm = [all_points_norm; pf_norm];
+                results.(v).pareto_fronts_norm{run} = pf_norm;
+            else
+                results.(v).pareto_fronts_norm{run} = [];
+            end
+        end
     end
-    fprintf('================================\n');
+
+    all_points_norm = unique(all_points_norm, 'rows');
+    true_front_norm = extractNonDominated(all_points_norm);
+    ref_point_norm = [1.05, 1.05];
+
+    fprintf('\n========== 消融实验最终汇总表格 (Min-Max 归一化) ==========\n');
+    fprintf('%-12s | %-10s | %-10s | %-13s | %-13s | %-8s\n', ...
+        'Variant', 'Fitness', 'Energy(J)', 'HV(Norm)↑', 'IGD(Norm)↓', 'Spread↑');
+    fprintf('%s\n', repmat('-', 1, 95));
+
+    for i = 1:length(valid_vars)
+        v = valid_vars{i};
+        r = results.(v);
+        hvs = zeros(n_runs, 1); igds = zeros(n_runs, 1); spreads = zeros(n_runs, 1);
+        for run = 1:length(r.pareto_fronts_norm)
+            pf_norm = r.pareto_fronts_norm{run};
+            if ~isempty(pf_norm)
+                try
+                    metrics = calculate_all_metrics(pf_norm, true_front_norm, ref_point_norm);
+                    hvs(run) = metrics.hv; igds(run) = metrics.igd; spreads(run) = metrics.spread;
+                catch
+                    hvs(run) = NaN; igds(run) = NaN; spreads(run) = NaN;
+                end
+            end
+        end
+        results.(v).mean_hv_norm = nanmean(hvs); results.(v).mean_igd_norm = nanmean(igds); results.(v).mean_spread_norm = nanmean(spreads);
+
+        fprintf('%-12s | %-10.2f | %-10.2f | %-5.4f±%-5.4f | %-5.4f±%-5.4f | %-8.4f\n', ...
+            v, r.mean_fitness, r.mean_energy, nanmean(hvs), nanstd(hvs), nanmean(igds), nanstd(igds), nanmean(spreads));
+    end
+    fprintf('%s\n', repmat('-', 1, 95));
 
     results_file = fullfile(project_dir, 'experiments', ['ablation_results_para_', map_name, '_', datestr(now, 'yyyymmdd_HHMMSS'), '.mat']);
     save(results_file, 'results');
-    fprintf('结果已保存: %s\n', results_file);
+    fprintf('\n完美消融结果已保存至: %s\n', results_file);
 end
 
 function cov_ratio = calcCoverageWithRRH(UAV_pos, User_pos, UAV_radius, RRH, RRH_radius)

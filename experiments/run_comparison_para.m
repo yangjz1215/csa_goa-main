@@ -280,35 +280,45 @@ function results = run_comparison_para(varargin)
         true_front = extractNonDominated(all_pareto_points);
         fprintf('  合并Pareto解数量: %d, 非支配解数量: %d\n', size(all_pareto_points, 1), size(true_front, 1));
 
+        % 归一化true_front（用于IGD计算）
+        true_front_norm = true_front;
+        true_front_norm(:, 2) = true_front(:, 2) / 100000;
+
         for alg_idx = 1:size(algorithms, 1)
             alg_name = algorithms{alg_idx, 1};
             igd_values = zeros(n_runs, 1);
             for run = 1:n_runs
                 pf = pareto_fronts{alg_idx}{run};
                 if ~isempty(pf)
-                    igd_values(run) = igd(pf, true_front);
+                    % 归一化前沿用于IGD计算
+                    pf_norm = pf;
+                    pf_norm(:, 2) = pf(:, 2) / 100000;
+                    igd_values(run) = igd(pf_norm, true_front_norm);
                 else
                     igd_values(run) = NaN;
                 end
             end
             results.(alg_name).igd_values = igd_values;
             results.(alg_name).mean_igd = mean(igd_values);
+            results.(alg_name).std_igd = std(igd_values);
         end
     end
 
     fprintf('\n========== 对比实验完成 (地图: %s) ==========\n', map_name);
-    fprintf('\n========== 结果汇总表格 ==========\n');
-    fprintf('%-18s | %-8s | %-8s | %-8s | %-8s | %-8s | %-6s\n', ...
-        'Algorithm', 'Fitness', 'Energy(J)', 'HighPri%', 'Total%', 'HV', 'Pareto');
-    fprintf('%s\n', repmat('-', 1, 100));
+    fprintf('\n========== 结果汇总表格 (多目标三剑客指标) ==========\n');
+    fprintf('%-18s | %-8s | %-8s | %-8s | %-8s | %-10s | %-10s | %-8s\n', ...
+        'Algorithm', 'Fitness', 'Energy(J)', 'HighPri%', 'Total%', 'HV', 'IGD', 'Spread');
+    fprintf('%s\n', repmat('-', 1, 115));
     for alg_idx = 1:size(algorithms, 1)
         alg_name = algorithms{alg_idx, 1};
         r = results.(alg_name);
-        fprintf('%-18s | %-8.2f | %-8.2f | %-8.2f | %-8.2f | %-8.4f | %-6.1f\n', ...
+        fprintf('%-18s | %-8.2f | %-8.2f | %-8.2f | %-8.2f | %-8.4f±%-6.4f | %-8.4f±%-6.4f | %-8.4f\n', ...
             alg_name, r.mean_fitness, r.mean_energy, ...
-            r.mean_cov_high, r.mean_cov_total, r.mean_hv, r.mean_pareto_size);
+            r.mean_cov_high, r.mean_cov_total, ...
+            r.mean_hv, r.std_hv, r.mean_igd, r.std_igd, r.mean_spread);
     end
     fprintf('================================\n');
+    fprintf('注: HV↑越大越好 | IGD↓越小越好 | Spread↑分布越均匀\n');
 
     results_file = fullfile(project_dir, 'experiments', ...
         ['comparison_results_para_', map_name, '_', datestr(now, 'yyyymmdd_HHMMSS'), '.mat']);

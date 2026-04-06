@@ -21,10 +21,15 @@ function [best_fit, bestUAV, cg_curve, best_energy, pareto_archive] = PSO_UAV(N_
 
     E_remaining = params.E_max * ones(N_UAV, 1);
 
+    center_point = [500, 500];
+    jitter = 10;
+
     for i = 1:pop_size
         for j = 1:N_UAV
-            population(i, (j-1)*2+1) = Lb(1) + rand() * (Ub(1) - Lb(1));
-            population(i, (j-1)*2+2) = Lb(2) + rand() * (Ub(2) - Lb(2));
+            init_x = center_point(1) + jitter * randn();
+            init_y = center_point(2) + jitter * randn();
+            population(i, (j-1)*2+1) = max(Lb(1), min(Ub(1), init_x));
+            population(i, (j-1)*2+2) = max(Lb(2), min(Ub(2), init_y));
         end
         velocities(i, :) = (rand(1, n_vars) - 0.5) * (Ub(1) - Lb(1)) * 0.1;
     end

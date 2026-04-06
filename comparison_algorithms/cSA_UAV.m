@@ -10,10 +10,15 @@ function [best_fit, bestUAV, cg_curve, best_energy, pareto_archive] = cSA_UAV(N_
     mu = zeros(N_UAV, 2);
     sicma = lamda * ones(N_UAV, 2);
 
+    center_point = [500, 500];
+    jitter = 10;
+
     population = zeros(N_UAV, 2);
     for j = 1:N_UAV
-        population(j, 1) = Lb(1) + rand() * (Ub(1) - Lb(1));
-        population(j, 2) = Lb(2) + rand() * (Ub(2) - Lb(2));
+        init_x = center_point(1) + jitter * randn();
+        init_y = center_point(2) + jitter * randn();
+        population(j, 1) = max(Lb(1), min(Ub(1), init_x));
+        population(j, 2) = max(Lb(2), min(Ub(2), init_y));
     end
 
     if ~checkConstraints(population, params.D_UU, params.D_RU, RRH)

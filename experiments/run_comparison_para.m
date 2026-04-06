@@ -12,7 +12,7 @@ function results = run_comparison_para(varargin)
     addParameter(p, 'n_runs', 30);
     addParameter(p, 'map_name', 'Map1_Medium');
     addParameter(p, 'verbose', false);
-    addParameter(p, 'n_workers', 4);
+    addParameter(p, 'n_workers', 3);
     parse(p, varargin{:});
     n_runs = p.Results.n_runs;
     map_name = p.Results.map_name;
@@ -213,7 +213,13 @@ function results = run_comparison_para(varargin)
                 pareto_fronts_cell{run} = pareto_front;
 
                 try
-                    metrics = calculate_all_metrics(pareto_front, [], reference_point);
+                    % HV量纲归一化：能耗目标归一化到[0,1]区间
+                    % 参考点是[1.0, 100000]，覆盖率已是0~1，能耗需除以100000
+                    ref_point_norm = [1.0, 1.0];
+                    pareto_front_norm = pareto_front;
+                    pareto_front_norm(:, 2) = pareto_front(:, 2) / 100000;
+
+                    metrics = calculate_all_metrics(pareto_front_norm, [], ref_point_norm);
                     hv_values(run) = metrics.hv;
                     spread_values(run) = metrics.spread;
                 catch

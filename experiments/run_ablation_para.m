@@ -10,7 +10,7 @@ function results = run_ablation_para(varargin)
     p = inputParser;
     addParameter(p, 'n_runs', 30);
     addParameter(p, 'map_name', 'Map1_Medium');
-    addParameter(p, 'n_workers', 4);
+    addParameter(p, 'n_workers', 3);
     parse(p, varargin{:});
     n_runs = p.Results.n_runs;
     map_name = p.Results.map_name;
@@ -193,7 +193,12 @@ function results = run_ablation_para(varargin)
                 temp_pareto_fronts{run} = pareto_front;
 
                 try
-                    metrics = calculate_all_metrics(pareto_front, [], reference_point);
+                    % HV量纲归一化：能耗目标归一化到[0,1]区间
+                    ref_point_norm = [1.0, 1.0];
+                    pareto_front_norm = pareto_front;
+                    pareto_front_norm(:, 2) = pareto_front(:, 2) / 100000;
+
+                    metrics = calculate_all_metrics(pareto_front_norm, [], ref_point_norm);
                     hv_values(run) = metrics.hv;
                     spread_values(run) = metrics.spread;
                 catch
